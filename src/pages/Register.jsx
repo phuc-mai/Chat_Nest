@@ -1,20 +1,18 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { auth, storage, db } from "../firebase";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
-import {
-  ref,
-  uploadBytesResumable,
-  getDownloadURL,
-} from "firebase/storage";
+import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { doc, setDoc } from "firebase/firestore";
 
-import { auth, storage } from "../firebase";
 import "../style/style.scss";
 
 const Register = () => {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(false);
+  const navigate = useNavigate();
 
-  const handleSubmit = async (e) => {
+  const handleRegister = async (e) => {
     setLoading(true);
     e.preventDefault();
 
@@ -26,30 +24,40 @@ const Register = () => {
     try {
       // Create User
       const res = await createUserWithEmailAndPassword(auth, email, password);
-      
+
       // Create a unique image name
-      const date = new Date().getTime()
+      const date = new Date().getTime();
       const storageRef = ref(storage, `${displayName + date}`);
 
-      const uploadTask = uploadBytesResumable(storageRef, file);
-
-      uploadTask.on(
-        (error) => {
-          setErr(true)
-        },
-        () => {
-          getDownloadURL(uploadTask.snapshot.ref).then( async (downloadURL) => {
-            await updateProfile((await res).user, {
-              // Update Profile
+      await uploadBytesResumable(storageRef, file).then(() => {
+        getDownloadURL(storageRef).then(async (downloadURL) => {
+          try {
+            // Update Profile
+            await updateProfile(res.user, {
               displayName,
               photoURL: downloadURL,
             });
-          });
-        }
-      );
+
+            // Create User on firestore
+            await setDoc(doc(db, "users", res.user.uid), {
+              uid: res.user.uid,
+              displayName,
+              email,
+              photoURL: downloadURL,
+            });
+
+            // Create empty user chats on firestore
+            await setDoc(doc(db, "contactChats", res.user.uid), {});
+            navigate("/");
+          } catch (err) {
+            setErr(true);
+            setLoading(false);
+          }
+        });
+      });
     } catch (err) {
       setErr(true);
-      setLoading(false)
+      setLoading(false);
     }
   };
 
@@ -58,7 +66,7 @@ const Register = () => {
       <div className="register-login_form">
         <h1>Chat Nest</h1>
         <h3>Register</h3>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleRegister}>
           <input required type="text" placeholder="Display Name" />
           <input required type="email" placeholder="Email" />
           <input required type="password" placeholder="Password" />
